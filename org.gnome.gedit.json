@@ -5,7 +5,7 @@
     "branch": "stable",
     "sdk": "org.gnome.Sdk",
     "command": "gedit",
-    "rename-icon": "gedit",
+    /* "rename-icon": "gedit", */
     "tags": [],
     "finish-args": [
         /* X11 + XShm access */
