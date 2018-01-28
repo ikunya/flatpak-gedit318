@@ -1,0 +1,604 @@
+From 24e4e79d0ec24612d26c0df636df4a9e54d4397a Mon Sep 17 00:00:00 2001
+From: Lars Uebernickel <lars.uebernickel@canonical.com>
+Date: Thu, 27 Aug 2015 15:01:22 +0200
+Subject: Use the OSX menubar layout for XFCE, Unity, etc.
+
+Rename menus-osx to menus-traditional so that it will automatically get loaded
+on platforms that require traditional menubar layouts.
+
+Add "Quit", "Preferences" and "About" items in the appropriate places, but mark
+them as hidden on Mac OS.
+
+Simplify configure.ac to let GtkApplication handle things automatically.
+
+We now also need to deal with the case where the gear menu will not
+exist, even on non-OSX systems.  Do that by hiding the button.
+
+Based on a patch by Ryan Lortie <desrt@desrt.ca>.
+
+https://bugzilla.gnome.org/show_bug.cgi?id=741904
+---
+ configure.ac                             |   3 -
+ gedit/Makefile.am                        |   5 +-
+ gedit/gedit-app-private.h                |   2 +-
+ gedit/gedit-app.c                        |  33 ++-
+ gedit/gedit-window.c                     |  16 +-
+ gedit/resources/gtk/menus-default.ui     | 149 --------------
+ gedit/resources/gtk/menus-traditional.ui | 341 ++++++++++++++++++++++---------
+ gedit/resources/gtk/menus.ui             | 149 ++++++++++++++
+ 8 files changed, 424 insertions(+), 274 deletions(-)
+ delete mode 100644 gedit/resources/gtk/menus-default.ui
+ create mode 100644 gedit/resources/gtk/menus.ui
+
+Index: gedit-3.18.3/configure.ac
+===================================================================
+--- gedit-3.18.3.orig/configure.ac
++++ gedit-3.18.3/configure.ac
+@@ -409,10 +409,8 @@ dnl Resource files depending on the OS
+ dnl ================================================================
+ 
+ if test "$os_osx" = "yes"; then
+-	os_menus_ui=menus-osx.ui
+ 	os_style_css=gedit-style-osx.css
+ else
+-	os_menus_ui=menus-default.ui
+ 	os_style_css=
+ 
+ 	OS_DEPENDENT_RESOURCE_FILES='<file preprocess="xml-stripblanks">gtk/menus-traditional.ui</file>'
+@@ -424,7 +422,6 @@ if test "x$os_style_css" != "x"; then
+ fi
+ 
+ AC_SUBST(OS_DEPENDENT_RESOURCE_FILES)
+-AC_CONFIG_LINKS(gedit/resources/gtk/menus.ui:gedit/resources/gtk/$os_menus_ui)
+ 
+ dnl ================================================================
+ dnl Misc
+Index: gedit-3.18.3/gedit/Makefile.am
+===================================================================
+--- gedit-3.18.3.orig/gedit/Makefile.am
++++ gedit-3.18.3/gedit/Makefile.am
+@@ -248,10 +248,7 @@ gedit_overrides_PYTHON = gedit/Gedit.py
+ endif
+ 
+ gedit_dist_resource_deps = 							\
+-	$(filter-out gedit/resources/css/gedit-style-os.css,$(filter-out gedit/resources/gtk/menus.ui,$(gedit_resource_deps)))	\
+-	gedit/resources/gtk/menus-traditional.ui				\
+-	gedit/resources/gtk/menus-default.ui					\
+-	gedit/resources/gtk/menus-osx.ui					\
++	$(filter-out %gedit/resources/css/gedit-style-os.css,$(gedit_resource_deps))	\
+ 	gedit/resources/css/gedit-style-osx.css
+ 
+ EXTRA_DIST += 					\
+Index: gedit-3.18.3/gedit/gedit-app-private.h
+===================================================================
+--- gedit-3.18.3.orig/gedit/gedit-app-private.h
++++ gedit-3.18.3/gedit/gedit-app-private.h
+@@ -50,7 +50,7 @@ void			 _gedit_app_set_default_print_set
+ 
+ GeditSettings		*_gedit_app_get_settings		(GeditApp  *app);
+ 
+-GMenuModel		*_gedit_app_get_window_menu		(GeditApp  *app);
++GMenuModel		*_gedit_app_get_gear_menu		(GeditApp  *app);
+ 
+ GMenuModel		*_gedit_app_get_notebook_menu		(GeditApp  *app);
+ 
+Index: gedit-3.18.3/gedit/gedit-app.c
+===================================================================
+--- gedit-3.18.3.orig/gedit/gedit-app.c
++++ gedit-3.18.3/gedit/gedit-app.c
+@@ -74,7 +74,7 @@ typedef struct
+ 	GSettings         *ui_settings;
+ 	GSettings         *window_settings;
+ 
+-	GMenuModel        *window_menu;
++	GMenuModel        *gear_menu;
+ 	GMenuModel        *notebook_menu;
+ 	GMenuModel        *tab_width_menu;
+ 	GMenuModel        *line_col_menu;
+@@ -199,7 +199,7 @@ gedit_app_dispose (GObject *object)
+ 		g_clear_object (&priv->theme_provider);
+ 	}
+ 
+-	g_clear_object (&priv->window_menu);
++	g_clear_object (&priv->gear_menu);
+ 	g_clear_object (&priv->notebook_menu);
+ 	g_clear_object (&priv->tab_width_menu);
+ 	g_clear_object (&priv->line_col_menu);
+@@ -792,17 +792,7 @@ gedit_app_startup (GApplication *applica
+ 	                                 application);
+ 
+ 	/* menus */
+-	priv->window_menu = gtk_application_get_menubar (GTK_APPLICATION (application));
+-
+-	if (priv->window_menu == NULL)
+-	{
+-		priv->window_menu = get_menu_model (GEDIT_APP (application), "gear-menu");
+-	}
+-	else
+-	{
+-		g_object_ref (priv->window_menu);
+-	}
+-
++	priv->gear_menu = get_menu_model (GEDIT_APP (application), "gear-menu");
+ 	priv->notebook_menu = get_menu_model (GEDIT_APP (application), "notebook-menu");
+ 	priv->tab_width_menu = get_menu_model (GEDIT_APP (application), "tab-width-menu");
+ 	priv->line_col_menu = get_menu_model (GEDIT_APP (application), "line-col-menu");
+@@ -1876,7 +1866,7 @@ _gedit_app_get_settings (GeditApp *app)
+ }
+ 
+ GMenuModel *
+-_gedit_app_get_window_menu (GeditApp *app)
++_gedit_app_get_gear_menu (GeditApp *app)
+ {
+ 	GeditAppPrivate *priv;
+ 
+@@ -1884,7 +1874,7 @@ _gedit_app_get_window_menu (GeditApp *ap
+ 
+ 	priv = gedit_app_get_instance_private (app);
+ 
+-	return priv->window_menu;
++	return priv->gear_menu;
+ }
+ 
+ GMenuModel *
+@@ -1936,8 +1926,17 @@ _gedit_app_extend_menu (GeditApp    *app
+ 
+ 	priv = gedit_app_get_instance_private (app);
+ 
+-	/* First look in the window menu */
+-	section = find_extension_point_section (priv->window_menu, extension_point);
++	/* First look in the gear or window menu */
++	if (priv->gear_menu)
++	{
++		model = priv->gear_menu;
++	}
++	else
++	{
++		model = gtk_application_get_menubar (GTK_APPLICATION (app));
++	}
++
++	section = find_extension_point_section (model, extension_point);
+ 
+ 	/* otherwise look in the app menu */
+ 	if (section == NULL)
+Index: gedit-3.18.3/gedit/gedit-window.c
+===================================================================
+--- gedit-3.18.3.orig/gedit/gedit-window.c
++++ gedit-3.18.3/gedit/gedit-window.c
+@@ -2805,9 +2805,19 @@ gedit_window_init (GeditWindow *window)
+ 	                        "text",
+ 	                        G_BINDING_BIDIRECTIONAL | G_BINDING_SYNC_CREATE);
+ 
+-	gear_menu = _gedit_app_get_window_menu (GEDIT_APP (g_application_get_default ())),
+-	gtk_menu_button_set_menu_model (window->priv->gear_button, gear_menu);
+-	gtk_menu_button_set_menu_model (window->priv->fullscreen_gear_button, gear_menu);
++	gear_menu = _gedit_app_get_gear_menu (GEDIT_APP (g_application_get_default ()));
++	if (gear_menu)
++	{
++		gtk_menu_button_set_menu_model (window->priv->gear_button, gear_menu);
++		gtk_menu_button_set_menu_model (window->priv->fullscreen_gear_button, gear_menu);
++	}
++	else
++	{
++		gtk_widget_hide (GTK_WIDGET (window->priv->gear_button));
++		gtk_widget_hide (GTK_WIDGET (window->priv->fullscreen_gear_button));
++		gtk_widget_set_no_show_all (GTK_WIDGET (window->priv->gear_button), TRUE);
++		gtk_widget_set_no_show_all (GTK_WIDGET (window->priv->fullscreen_gear_button), TRUE);
++	}
+ 
+ 	g_signal_connect (GTK_TOGGLE_BUTTON (window->priv->fullscreen_open_button),
+ 	                  "toggled",
+Index: gedit-3.18.3/gedit/resources/gtk/menus-traditional.ui
+===================================================================
+--- gedit-3.18.3.orig/gedit/resources/gtk/menus-traditional.ui
++++ gedit-3.18.3/gedit/resources/gtk/menus-traditional.ui
+@@ -1,82 +1,180 @@
+ <?xml version="1.0"?>
+ <interface>
+   <!-- interface-requires gtk+ 3.0 -->
+-  <menu id="gear-menu">
+-    <section>
+-      <attribute name="id">juntion-section</attribute>
+-      <attribute name="display-hint">horizontal-buttons</attribute>
+-      <item>
+-        <attribute name="label" translatable="yes">_Reload</attribute>
+-        <attribute name="action">win.revert</attribute>
+-        <attribute name="verb-icon">view-refresh-symbolic</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_Print…</attribute>
+-        <attribute name="action">win.print</attribute>
+-        <attribute name="verb-icon">printer-symbolic</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_Fullscreen</attribute>
+-        <attribute name="action">win.fullscreen</attribute>
+-        <attribute name="verb-icon">view-fullscreen-symbolic</attribute>
+-      </item>
+-    </section>
+-    <section>
+-      <attribute name="id">file-section</attribute>
+-    </section>
+-    <section>
+-      <attribute name="id">file-section-1</attribute>
+-      <item>
+-        <attribute name="label" translatable="yes">_Save As…</attribute>
+-        <attribute name="action">win.save-as</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">Save _All</attribute>
+-        <attribute name="action">win.save-all</attribute>
+-      </item>
+-    </section>
+-    <section>
+-      <attribute name="id">edit-section</attribute>
+-    </section>
+-    <section>
+-      <attribute name="id">edit-section-1</attribute>
+-    </section>
+-    <section>
+-      <attribute name="id">search-section</attribute>
+-      <item>
+-        <attribute name="label" translatable="yes">_Find…</attribute>
+-        <attribute name="action">win.find</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_Find and Replace…</attribute>
+-        <attribute name="action">win.replace</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_Clear Highlight</attribute>
+-        <attribute name="action">win.clear-highlight</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_Go to Line…</attribute>
+-        <attribute name="action">win.goto-line</attribute>
+-      </item>
+-    </section>
++  <menu id="menubar">
+     <section>
+       <submenu>
+-        <attribute name="label" translatable="yes">View</attribute>
++        <attribute name="label" translatable="yes">_File</attribute>
++        <section>
++          <attribute name="id">file-section-0</attribute>
++          <item>
++            <attribute name="label" translatable="yes" comments="_New is the menu item under the File menu on OS X which creates a new empty document.">_New</attribute>
++            <attribute name="action">win.new-tab</attribute>
++            <attribute name="accel">&lt;Primary&gt;T</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">file-section</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Open</attribute>
++            <attribute name="action">win.open</attribute>
++            <attribute name="hidden-when">action-disabled</attribute>
++            <attribute name="accel">&lt;Primary&gt;O</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">_Open</attribute>
++            <attribute name="action">app.open</attribute>
++            <attribute name="hidden-when">action-disabled</attribute>
++          </item>
++          <submenu>
++            <attribute name="label" translatable="yes">Open _Recent</attribute>
++            <section>
++              <item>
++                <attribute name="label" translatable="yes">Reopen Closed _Tab</attribute>
++                <attribute name="action">win.reopen-closed-tab</attribute>
++                <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;T</attribute>
++              </item>
++            </section>
++            <section>
++              <attribute name="id">recent-files-section</attribute>
++            </section>
++          </submenu>
++        </section>
++        <section>
++          <attribute name="id">file-section-1</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Save</attribute>
++            <attribute name="action">win.save</attribute>
++            <attribute name="accel">&lt;Primary&gt;S</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">Save _As…</attribute>
++            <attribute name="action">win.save-as</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;S</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">app-commands-section</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_New Window</attribute>
++            <attribute name="action">app.new-window</attribute>
++            <attribute name="accel">&lt;Primary&gt;N</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">file-section-2</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Reload</attribute>
++            <attribute name="action">win.revert</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">file-section-3</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Print…</attribute>
++            <attribute name="action">win.print</attribute>
++            <attribute name="accel">&lt;Primary&gt;P</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">close-section</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Close</attribute>
++            <attribute name="action">win.close</attribute>
++            <attribute name="accel">&lt;Primary&gt;W</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">_Quit</attribute>
++            <attribute name="hidden-when">macos-menubar</attribute>
++            <attribute name="action">app.quit</attribute>
++            <attribute name="accel">&lt;Primary&gt;Q</attribute>
++          </item>
++        </section>
++      </submenu>
++      <submenu>
++        <attribute name="label" translatable="yes">_Edit</attribute>
++        <section>
++          <attribute name="id">edit-section</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Undo</attribute>
++            <attribute name="action">win.undo</attribute>
++            <attribute name="accel">&lt;Primary&gt;Z</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">_Redo</attribute>
++            <attribute name="action">win.redo</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;Z</attribute>
++          </item>
++        </section>
++        <section>
++          <item>
++            <attribute name="label" translatable="yes">C_ut</attribute>
++            <attribute name="action">win.cut</attribute>
++            <attribute name="accel">&lt;Primary&gt;X</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">_Copy</attribute>
++            <attribute name="action">win.copy</attribute>
++            <attribute name="accel">&lt;Primary&gt;C</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">_Paste</attribute>
++            <attribute name="action">win.paste</attribute>
++            <attribute name="accel">&lt;Primary&gt;V</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">_Delete</attribute>
++            <attribute name="action">win.delete</attribute>
++            <attribute name="accel">Delete</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">edit-section-1</attribute>
++          <item>
++            <attribute name="label" translatable="yes">Overwrite _Mode</attribute>
++            <attribute name="action">win.overwrite-mode</attribute>
++            <attribute name="accel">Insert</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">edit-section-2</attribute>
++          <item>
++            <attribute name="label" translatable="yes">Select _All</attribute>
++            <attribute name="action">win.select-all</attribute>
++            <attribute name="accel">&lt;Primary&gt;A</attribute>
++          </item>
++        </section>
++        <section>
++          <item>
++            <attribute name="label" translatable="yes">_Preferences</attribute>
++            <attribute name="hidden-when">macos-menubar</attribute>
++            <attribute name="action">app.preferences</attribute>
++          </item>
++        </section>
++      </submenu>
++      <submenu>
++        <attribute name="label" translatable="yes">_View</attribute>
+         <section>
+           <attribute name="id">view-section</attribute>
+           <item>
+             <attribute name="label" translatable="yes">Side _Panel</attribute>
+             <attribute name="action">win.side-panel</attribute>
++            <attribute name="accel">F9</attribute>
+           </item>
+           <item>
+             <attribute name="label" translatable="yes">_Bottom Panel</attribute>
+             <attribute name="action">win.bottom-panel</attribute>
+             <attribute name="hidden-when">action-disabled</attribute>
++            <attribute name="accel">&lt;Primary&gt;F9</attribute>
+           </item>
+         </section>
+         <section>
+           <attribute name="id">view-section-1</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Fullscreen</attribute>
++            <attribute name="action">win.fullscreen</attribute>
++            <attribute name="accel">F11</attribute>
++          </item>
+         </section>
+         <section>
+           <attribute name="id">view-section-2</attribute>
+@@ -87,7 +185,52 @@
+         </section>
+       </submenu>
+       <submenu>
+-        <attribute name="label" translatable="yes">Tools</attribute>
++        <attribute name="label" translatable="yes">_Search</attribute>
++        <section>
++          <attribute name="id">search-section</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Find…</attribute>
++            <attribute name="action">win.find</attribute>
++            <attribute name="accel">&lt;Primary&gt;F</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">Find Ne_xt</attribute>
++            <attribute name="action">win.find-next</attribute>
++            <attribute name="accel">&lt;Primary&gt;G</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">Find Pre_vious</attribute>
++            <attribute name="action">win.find-prev</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;G</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">search-section-1</attribute>
++          <item>
++            <attribute name="label" translatable="yes">Find and _Replace…</attribute>
++            <attribute name="action">win.replace</attribute>
++            <attribute name="accel">&lt;Primary&gt;H</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">search-section-2</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Clear Highlight</attribute>
++            <attribute name="action">win.clear-highlight</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;K</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">search-section-3</attribute>
++          <item>
++            <attribute name="label" translatable="yes">Go to _Line…</attribute>
++            <attribute name="action">win.goto-line</attribute>
++            <attribute name="accel">&lt;Primary&gt;I</attribute>
++          </item>
++        </section>
++      </submenu>
++      <submenu>
++        <attribute name="label" translatable="yes">_Tools</attribute>
+         <section>
+           <attribute name="id">spell-section</attribute>
+         </section>
+@@ -97,40 +240,82 @@
+         <section>
+           <attribute name="id">tools-section-1</attribute>
+         </section>
++        <section>
++          <attribute name="id">preferences-section</attribute>
++        </section>
+       </submenu>
+-    </section>
+-    <section>
+-      <attribute name="id">preferences-section</attribute>
+-      <item>
+-        <attribute name="label" translatable="yes">_Preferences</attribute>
+-        <attribute name="action">app.preferences</attribute>
+-      </item>
+-    </section>
+-    <section>
+-      <attribute name="id">help-section</attribute>
+-      <item>
++      <submenu>
++        <attribute name="label" translatable="yes">_Documents</attribute>
++        <section>
++          <attribute name="id">documents-section</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Save All</attribute>
++            <attribute name="action">win.save-all</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;L</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">_Close All</attribute>
++            <attribute name="action">win.close-all</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;W</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">documents-section-1</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_New Tab Group</attribute>
++            <attribute name="action">win.new-tab-group</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Alt&gt;N</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">P_revious Tab Group</attribute>
++            <attribute name="action">win.previous-tab-group</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;&lt;Alt&gt;Page_Up</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">Nex_t Tab Group</attribute>
++            <attribute name="action">win.next-tab-group</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Shift&gt;&lt;Alt&gt;Page_Down</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">documents-section-2</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Previous Document</attribute>
++            <attribute name="action">win.previous-document</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Alt&gt;Page_Up</attribute>
++          </item>
++          <item>
++            <attribute name="label" translatable="yes">N_ext Document</attribute>
++            <attribute name="action">win.next-document</attribute>
++            <attribute name="accel">&lt;Primary&gt;&lt;Alt&gt;Page_Down</attribute>
++          </item>
++        </section>
++        <section>
++          <attribute name="id">documents-section-3</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Move To New Window</attribute>
++            <attribute name="action">win.move-to-new-window</attribute>
++          </item>
++        </section>
++      </submenu>
++      <submenu>
+         <attribute name="label" translatable="yes">_Help</attribute>
+-        <attribute name="action">app.help</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_About</attribute>
+-        <attribute name="action">app.about</attribute>
+-      </item>
+-    </section>
+-    <section>
+-      <attribute name="id">close-section</attribute>
+-      <item>
+-        <attribute name="label" translatable="yes">_Close All</attribute>
+-        <attribute name="action">win.close-all</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_Close</attribute>
+-        <attribute name="action">win.close</attribute>
+-      </item>
+-      <item>
+-        <attribute name="label" translatable="yes">_Quit</attribute>
+-        <attribute name="action">app.quit</attribute>
+-      </item>
++        <section>
++          <attribute name="id">help-section</attribute>
++          <item>
++            <attribute name="label" translatable="yes">_Help</attribute>
++            <attribute name="action">app.help</attribute>
++            <attribute name="accel">F1</attribute>
++          </item>
++        </section>
++        <section>
++          <item>
++            <attribute name="label" translatable="yes">_About</attribute>
++            <attribute name="hidden-when">macos-menubar</attribute>
++            <attribute name="action">app.about</attribute>
++          </item>
++        </section>
++      </submenu>
+     </section>
+   </menu>
+ </interface>
