@@ -74,6 +74,14 @@
                 {
                     "type": "patch",
                     "path": "0001-Use-the-OSX-menubar-layout-for-XFCE-Unity-etc.patch"
+                },
+                {
+                    "type": "patch",
+                    "path": "disable-headerbar.patch"
+                },
+                {
+                    "type": "patch",
+                    "path": "update-po.patch"
                 }
             ]
         },

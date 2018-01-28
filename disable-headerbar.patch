@@ -1,0 +1,20 @@
+Index: gedit-3.18.3/configure.ac
+===================================================================
+--- gedit-3.18.3.orig/configure.ac
++++ gedit-3.18.3/configure.ac
+@@ -412,6 +412,7 @@ if test "$os_osx" = "yes"; then
+ 	os_style_css=gedit-style-osx.css
+ else
+ 	os_style_css=
++	os_menus_ui=menus-traditional.ui
+ 
+ 	OS_DEPENDENT_RESOURCE_FILES='<file preprocess="xml-stripblanks">gtk/menus-traditional.ui</file>'
+ fi
+@@ -422,6 +423,7 @@ if test "x$os_style_css" != "x"; then
+ fi
+ 
+ AC_SUBST(OS_DEPENDENT_RESOURCE_FILES)
++AC_CONFIG_LINKS(gedit/resources/gtk/menus.ui:gedit/resources/gtk/$os_menus_ui)
+ 
+ dnl ================================================================
+ dnl Misc
