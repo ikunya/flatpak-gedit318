@@ -68,8 +68,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://download.gnome.org/sources/gedit/3.22/gedit-3.22.1.tar.xz",
-                    "sha256": "aa7bc3618fffa92fdb7daf2f57152e1eb7962e68561a9c92813d7bbb7fc9492b"
+                    "url": "https://download.gnome.org/sources/gedit/3.18/gedit-3.18.3.tar.xz",
+                    "sha256": "6762ac0d793b0f754a2da5f88739d04fa39daa7491c5c46401d24bcef76c32e7"
                 }
             ]
         },
@@ -78,8 +78,8 @@
             "sources": [
                 {
                     "type": "archive",
-                    "url": "https://download.gnome.org/sources/gedit-plugins/3.22/gedit-plugins-3.22.0.tar.xz",
-                    "sha256": "83a73088de73478841b9a216bd89c2e478aa302b3579a2a8685893d7a6a48fdc"
+                    "url": "https://download.gnome.org/sources/gedit-plugins/3.18/gedit-plugins-3.18.0.tar.xz",
+                    "sha256": "e25249c0c2a057827bb4d4755a2359e1f9b4de288e0c4e201c6ef4f0e0e8c580"
                 }
             ]
         }
