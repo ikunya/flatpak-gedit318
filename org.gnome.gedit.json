@@ -94,6 +94,25 @@
                     "sha256": "e25249c0c2a057827bb4d4755a2359e1f9b4de288e0c4e201c6ef4f0e0e8c580"
                 }
             ]
-        }
+        },
+        {
+           "name": "pandoc",
+           "buildsystem": "simple",
+           "build-commands": [
+                   "tar xf pandoc-2.0.6-linux.tar.gz",
+                   "cp -r pandoc-2.0.6/* /app"
+            ],
+            "cleanup": [
+                   "/share/man",
+                   "/bin/pandoc-citeproc"
+            ],
+            "sources": [
+	        {
+	           "type": "file",
+	           "url": "https://github.com/jgm/pandoc/releases/download/2.0.6/pandoc-2.0.6-linux.tar.gz",
+                   "sha256": "6c003343805e9398c7f45c3e75bd133b4acd6fc37acda4a87b19358dfd88d28c"
+                }
+            ]
+       }
     ]
 }
